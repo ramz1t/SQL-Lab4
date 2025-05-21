@@ -1,21 +1,21 @@
 package se.hkr.dao;
 
-import se.hkr.menu.Menu;
 import se.hkr.model.Employee;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Optional;
 
 public class EmployeeDAO {
-    Connection connection;
+    private final Connection connection;
 
     public EmployeeDAO(Connection connection) {
         this.connection = connection;
     }
 
-    public Employee getEmployee(int employee_id) throws SQLException {
+    public Optional<Employee> getEmployee(int employee_id) throws SQLException {
         String sql = """
         SELECT id, address, city, first_name, last_name, postal_code
         FROM employee
@@ -26,17 +26,17 @@ public class EmployeeDAO {
             stmt.setInt(1, employee_id);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return new Employee(
+                    return Optional.of(new Employee(
                             rs.getLong("id"),
                             rs.getString("address"),
                             rs.getString("city"),
                             rs.getString("first_name"),
                             rs.getString("last_name"),
                             rs.getString("postal_code")
-                    );
+                    ));
                 }
             }
         }
-        return null;
+        return Optional.empty();
     }
 }

@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class OrderDAO {
-    Connection connection;
+    private final Connection connection;
 
     public OrderDAO(Connection connection) {
         this.connection = connection;
@@ -21,16 +21,16 @@ public class OrderDAO {
         String sql = "SELECT id, order_date, customer_id, employee_id FROM order_head WHERE employee_id = ?";
         try (PreparedStatement stmt = this.connection.prepareStatement(sql)) {
             stmt.setInt(1, employeeId);
-            ResultSet rs = stmt.executeQuery();
-
-            while (rs.next()) {
-                OrderHead order = new OrderHead(
-                        rs.getLong("id"),
-                        rs.getDate("order_date"),
-                        rs.getLong("customer_id"),
-                        rs.getLong("employee_id")
-                );
-                orders.add(order);
+            try (ResultSet rs = stmt.executeQuery();) {
+                while (rs.next()) {
+                    OrderHead order = new OrderHead(
+                            rs.getLong("id"),
+                            rs.getDate("order_date"),
+                            rs.getLong("customer_id"),
+                            rs.getLong("employee_id")
+                    );
+                    orders.add(order);
+                }
             }
         }
 
@@ -38,53 +38,50 @@ public class OrderDAO {
     }
 
     public void createOrder(OrderHead order, List<OrderLine> orderLines) throws SQLException {
-        String insertOrderSql = "INSERT INTO order_head (order_date, customer_id, employee_id) VALUES (?, ?, ?)";
-        String insertOrderLineSql = "INSERT INTO order_line (furniture_id, order_id, quantity) VALUES (?, ?, ?)";
-
-        // Here I create a copy of Connection to only apply setAutoCommit(false) in this function
-        Connection conn = null;
-        PreparedStatement orderStmt = null;
-        PreparedStatement orderLineStmt = null;
-        ResultSet generatedKeys = null;
-
         try {
-            conn = this.connection;
-            conn.setAutoCommit(false);
-
-            orderStmt = conn.prepareStatement(insertOrderSql, Statement.RETURN_GENERATED_KEYS);
-            orderStmt.setDate(1, new java.sql.Date(order.order_date().getTime()));
-            orderStmt.setLong(2, order.customer_id());
-            orderStmt.setLong(3, order.employee_id());
-            orderStmt.executeUpdate();
-
-            generatedKeys = orderStmt.getGeneratedKeys();
-            if (!generatedKeys.next()) {
-                throw new SQLException("Creating order failed, no ID obtained.");
-            }
-            long generatedOrderId = generatedKeys.getLong(1);
-
-            orderLineStmt = conn.prepareStatement(insertOrderLineSql);
-            for (OrderLine line : orderLines) {
-                orderLineStmt.setLong(1, line.furniture_id());
-                orderLineStmt.setLong(2, generatedOrderId);
-                orderLineStmt.setInt(3, line.quantity());
-                orderLineStmt.executeUpdate();
-            }
-
-            conn.commit();
+            connection.setAutoCommit(false);
+            long generatedOrderId = createOrderHead(order);
+            createOrderLines(generatedOrderId, orderLines);
+            connection.commit();
         } catch (SQLException e) {
             try {
-                conn.rollback();
-                Menu.println("Transaction rolled back.");
+                connection.rollback();
             } catch (SQLException rollbackEx) {
                 Menu.println("Rollback failed: " + rollbackEx.getMessage());
             }
             throw e;
         } finally {
-            if (generatedKeys != null) generatedKeys.close();
-            if (orderStmt != null) orderStmt.close();
-            if (orderLineStmt != null) orderLineStmt.close();
-            if (conn != null) conn.setAutoCommit(true);
+            connection.setAutoCommit(true);
+        }
+    }
+
+    private long createOrderHead(OrderHead order) throws SQLException {
+        String insertOrderSql = "INSERT INTO order_head (order_date, customer_id, employee_id) VALUES (?, ?, ?)";
+        try (PreparedStatement orderStmt = connection.prepareStatement(insertOrderSql, Statement.RETURN_GENERATED_KEYS)) {
+            orderStmt.setDate(1, new java.sql.Date(order.order_date().getTime()));
+            orderStmt.setLong(2, order.customer_id());
+            orderStmt.setLong(3, order.employee_id());
+            orderStmt.executeUpdate();
+
+            try (ResultSet generatedKeys = orderStmt.getGeneratedKeys();) {
+                if (!generatedKeys.next()) {
+                    throw new SQLException("Creating order failed, no ID obtained.");
+                }
+                return generatedKeys.getLong(1);
+            }
+        }
+    }
+
+    private void createOrderLines(long orderId, List<OrderLine> orderLines) throws SQLException {
+        String insertOrderLineSql = "INSERT INTO order_line (furniture_id, order_id, quantity) VALUES (?, ?, ?)";
+        try (PreparedStatement orderLineStmt = connection.prepareStatement(insertOrderLineSql);) {
+            for (OrderLine line : orderLines) {
+                orderLineStmt.setLong(1, line.furniture_id());
+                orderLineStmt.setLong(2, orderId);
+                orderLineStmt.setInt(3, line.quantity());
+                orderLineStmt.addBatch();
+            }
+            orderLineStmt.executeBatch();
         }
     }
 

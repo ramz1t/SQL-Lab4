@@ -10,7 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class CustomerDAO {
-    Connection connection;
+    private final Connection connection;
 
     public CustomerDAO(Connection connection) {
         this.connection = connection;
@@ -21,8 +21,8 @@ public class CustomerDAO {
 
         String sql = "SELECT * FROM customer";
 
-        try (PreparedStatement stmt = this.connection.prepareStatement(sql)) {
-            ResultSet rs = stmt.executeQuery();
+        try (PreparedStatement stmt = this.connection.prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
                 Customer customer = new Customer(
                         rs.getLong("id"),
